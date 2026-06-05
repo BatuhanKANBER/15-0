@@ -1,0 +1,110 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <title>17-0</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <div id="app">
+
+    <!-- ── Formation / Intro Screen ──────────────────────────── -->
+    <div id="screen-formation" class="screen active">
+      <div class="intro-card">
+        <div class="logo-wrap">
+          <span class="logo-icon">🏆</span>
+          <h1 class="logo-title">17-0</h1>
+          <p class="logo-sub">Şampiyonlar Ligi simülatörü</p>
+        </div>
+        <p class="intro-desc">
+          100 farklı UCL kadrosundan 11 oyuncu seç<br/>
+          takımını kur, turu geç, kupayı kaldır
+        </p>
+        <div class="formation-options" id="formation-options"></div>
+        <button id="btn-confirm-formation" class="btn btn-primary" disabled>
+          Oyna →
+        </button>
+      </div>
+    </div>
+
+    <!-- ── Game Screen ────────────────────────────────────────── -->
+    <div id="screen-game" class="screen">
+      <header class="game-header">
+        <div class="header-left">
+          <span class="h-logo">17-0</span>
+          <span id="formation-badge" class="formation-badge"></span>
+        </div>
+        <div id="progress-slots" class="progress-slots"></div>
+      </header>
+
+      <div class="game-body">
+
+        <!-- Squad Panel -->
+        <div class="squad-panel">
+          <div id="squad-header" class="squad-header hidden">
+            <div class="season-info">
+              <span id="current-season" class="season-badge"></span>
+              <span id="current-team" class="team-name"></span>
+            </div>
+            <button id="btn-skip" class="btn-skip" title="Kadroyu değiştir">
+              🔄 <span id="skip-count" class="skip-count">3</span>
+            </button>
+          </div>
+
+
+          <div id="squad-placeholder" class="squad-placeholder">
+            <div class="placeholder-icon">🎲</div>
+            <p>11 kadro · 11 oyuncu</p>
+            <p class="ph-sub">Her kadrodan 1 oyuncu seçeceksin</p>
+          </div>
+
+          <div id="player-list" class="player-list hidden"></div>
+
+          <div class="roll-zone">
+            <p id="roll-hint" class="roll-hint">Başlamak için Roll'a bas</p>
+            <button id="btn-roll" class="btn-roll ready">🎲 Roll</button>
+          </div>
+        </div>
+
+        <!-- XI Panel -->
+        <div class="xi-panel">
+          <div class="xi-header">
+            <span class="xi-label">Takımım</span>
+            <span id="xi-count" class="xi-count">0 / 11</span>
+          </div>
+          <div class="formation" id="formation-container"></div>
+        </div>
+
+      </div>
+    </div>
+
+    <!-- ── Result Screen ──────────────────────────────────────── -->
+    <div id="screen-result" class="screen">
+      <div class="result-card">
+        <div class="result-hero">
+          <div id="result-icon" class="result-icon"></div>
+          <div id="result-grade" class="grade"></div>
+          <h2 id="result-title"></h2>
+          <p id="win-text" class="win-text"></p>
+        </div>
+        <div id="result-timeline" class="result-timeline"></div>
+        <details class="xi-details">
+          <summary>Takımım (11 oyuncu)</summary>
+          <div id="result-xi" class="result-xi"></div>
+        </details>
+        <button id="btn-play-again" class="btn btn-primary">Tekrar Oyna</button>
+      </div>
+    </div>
+
+  </div>
+
+  <div id="toast" class="toast hidden"></div>
+
+  <script src="data.js"></script>
+  <script src="api.js"></script>
+  <script src="engine.js"></script>
+  <script src="ui.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
