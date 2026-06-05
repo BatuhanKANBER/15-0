@@ -61,22 +61,40 @@ async function onRoll() {
   if (STATE.phase === "loading") return;
   updateSkipBtn();
 
-  if (STATE.phase === "selected" && STATE.pendingPlayer) {
-    const p = STATE.pendingPlayer;
-    STATE.xi[p.pos][STATE.xi[p.pos].indexOf(null)] = p;
-    STATE.selectedNames.add(normName(p.name));
+  if (STATE.phase === "selected") {
+    // Seçimi iptal et
     STATE.pendingPlayer = null;
-
+    STATE.phase = "awaiting";
+    renderPlayerList();
     renderFormation(STATE.xi, STATE.maxSlots, null);
     updateProgressSlots(STATE.xi, STATE.maxSlots, null);
+    updateRollZone("awaiting", null);
+    return;
+  }
 
-    const total  = Object.values(STATE.xi).flat().filter(Boolean).length;
-    const needed = Object.values(STATE.maxSlots).reduce((a, b) => a + b, 0);
-    if (total >= needed) {
-      const all = Object.values(STATE.xi).flat().filter(Boolean);
-      renderResult(simulateUCL(all), all);
-      return;
-    }
+  await loadNextSquad();
+}
+
+// ── Slot click — oyuncuyu belirli slota yerleştir ─────────────────
+async function onSlotClick(pos, idx) {
+  if (!STATE.pendingPlayer || STATE.pendingPlayer.pos !== pos) return;
+  if (STATE.xi[pos][idx] !== null) return;
+
+  const p = STATE.pendingPlayer;
+  STATE.xi[pos][idx] = p;
+  STATE.selectedNames.add(normName(p.name));
+  STATE.pendingPlayer = null;
+  STATE.phase = "awaiting";
+
+  renderFormation(STATE.xi, STATE.maxSlots, null, { pos: p.pos, idx });
+  updateProgressSlots(STATE.xi, STATE.maxSlots, null);
+
+  const total  = Object.values(STATE.xi).flat().filter(Boolean).length;
+  const needed = Object.values(STATE.maxSlots).reduce((a, b) => a + b, 0);
+  if (total >= needed) {
+    const all = Object.values(STATE.xi).flat().filter(Boolean);
+    renderResult(simulateUCL(all), all);
+    return;
   }
 
   await loadNextSquad();
@@ -139,23 +157,45 @@ function renderPlayerList() {
   const list = document.getElementById("player-list");
   if (!list) return;
 
-  // Sort: selectable first (by overall desc), then disabled/confirmed at bottom
-  const players = [...STATE.allPlayers].sort((a, b) => b.overall - a.overall);
+  // Seçilebilir oyuncular önce (OVR'a göre), devre dışı olanlar sonda
+  const players = [...STATE.allPlayers].sort((a, b) => {
+    const aOff = STATE.selectedNames.has(normName(a.name)) || !STATE.xi[a.pos].includes(null);
+    const bOff = STATE.selectedNames.has(normName(b.name)) || !STATE.xi[b.pos].includes(null);
+    if (aOff !== bOff) return aOff ? 1 : -1;
+    return b.overall - a.overall;
+  });
 
   if (!players.length) {
     list.innerHTML = `<p class="empty-tab">Kadro bulunamadı</p>`;
     return;
   }
 
-  list.innerHTML = players.map(p => {
+  let html = '';
+  let dividerAdded = false;
+
+  players.forEach(p => {
     const isSelected  = STATE.pendingPlayer?.id === p.id;
     const isConfirmed = STATE.selectedNames.has(normName(p.name));
     const posFull     = !STATE.xi[p.pos].includes(null);
     const isDisabled  = !isSelected && (posFull || isConfirmed);
+
+    if (isDisabled && !dividerAdded) {
+      html += '<div class="player-list-divider"></div>';
+      dividerAdded = true;
+    }
+
     let card = renderPlayerCard(p, isSelected, isDisabled);
     if (isConfirmed) card = card.replace('class="player-card disabled"', 'class="player-card confirmed"');
-    return card;
-  }).join("");
+    html += card;
+  });
+
+  list.innerHTML = html;
+
+  // Stagger-in animation for each card
+  list.querySelectorAll(".player-card").forEach((card, i) => {
+    card.style.animationDelay = `${i * 22}ms`;
+    card.classList.add("anim");
+  });
 
   list.querySelectorAll(".player-card:not(.disabled):not(.confirmed)").forEach(card =>
     card.addEventListener("click", () => onPlayerClick(parseInt(card.dataset.id))));

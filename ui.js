@@ -113,7 +113,8 @@ function renderPlayerCard(p, isSelected, isDisabled) {
 
 // ── Formation render ──────────────────────────────────────────────
 // Builds the formation DOM. pendingPlayer = selected but not yet confirmed.
-function renderFormation(xi, maxSlots, pendingPlayer) {
+// newlyFilled = { pos, idx } of the slot just confirmed (gets pop animation).
+function renderFormation(xi, maxSlots, pendingPlayer, newlyFilled = null) {
   const container = document.getElementById("formation-container");
   container.innerHTML = "";
 
@@ -135,11 +136,14 @@ function renderFormation(xi, maxSlots, pendingPlayer) {
       const player = xi[pos][i];
 
       if (player) {
-        slot.className = "slot filled";
+        const isNew = newlyFilled && newlyFilled.pos === pos && newlyFilled.idx === i;
+        slot.className = isNew ? "slot filled just-filled" : "slot filled";
         slot.innerHTML = buildFilledSlot(pos, player);
-      } else if (pendingPlayer && pendingPlayer.pos === pos && i === firstNull) {
-        slot.className = "slot pending-slot";
-        slot.innerHTML = buildPendingSlot(pos, pendingPlayer);
+      } else if (pendingPlayer && pendingPlayer.pos === pos) {
+        // Tüm boş slotlar tıklanabilir olarak işaretle
+        slot.className = "slot selectable";
+        slot.innerHTML = buildSelectableSlot(pos);
+        slot.addEventListener("click", () => onSlotClick(pos, i));
       } else {
         slot.className = "slot empty";
         slot.innerHTML = buildEmptySlot(pos);
@@ -158,10 +162,9 @@ function buildEmptySlot(pos) {
   const labels = { GK:"KAL", DEF:"DEF", MID:"ORT", FWD:"FOR" };
   return `<span class="slot-pos-label">${labels[pos]}</span><span class="slot-hint">Boş</span>`;
 }
-function buildPendingSlot(pos, player) {
+function buildSelectableSlot(pos) {
   const labels = { GK:"KAL", DEF:"DEF", MID:"ORT", FWD:"FOR" };
-  const short  = player.name.split(" ").slice(-1)[0];
-  return `<span class="slot-pos-label">${labels[pos]}</span><span class="slot-name">${short}</span><span class="slot-ovr ${ovrClass(player.overall)}">${player.overall}?</span>`;
+  return `<span class="slot-pos-label">${labels[pos]}</span><span class="slot-select-icon">+</span>`;
 }
 function buildFilledSlot(pos, player) {
   const labels = { GK:"KAL", DEF:"DEF", MID:"ORT", FWD:"FOR" };
@@ -199,10 +202,10 @@ function updateRollZone(phase, pendingPlayer) {
       break;
     case "selected":
       btn.disabled   = false;
-      btn.className  = "btn-roll confirm";
-      btn.textContent = "🎲 Roll — Onayla!";
-      hint.textContent = pendingPlayer ? `${pendingPlayer.name} seçildi` : "";
-      hint.className   = "roll-hint confirmed";
+      btn.className  = "btn-roll cancel";
+      btn.textContent = "✕ İptal";
+      hint.textContent = pendingPlayer ? `${pendingPlayer.name} — sahada mevkiye tıkla` : "";
+      hint.className   = "roll-hint ready";
       break;
   }
 }
@@ -220,7 +223,7 @@ function renderResult(sim, players) {
 
   // Phase timeline
   document.getElementById("result-timeline").innerHTML =
-    sim.phases.map(buildPhaseHTML).join("");
+    sim.phases.map((p, i) => buildPhaseHTML(p, i)).join("");
 
   // XI
   const posOrder = ["GK","DEF","MID","FWD"];
@@ -234,7 +237,7 @@ function renderResult(sim, players) {
   showScreen("screen-result");
 }
 
-function buildPhaseHTML(phase) {
+function buildPhaseHTML(phase, index = 0) {
   const passIcon = phase.passed ? "✓" : "✗";
   const passClass = phase.passed ? "phase-passed" : "phase-eliminated";
 
@@ -283,7 +286,7 @@ function buildPhaseHTML(phase) {
   }
 
   return `
-    <div class="phase-block ${passClass}">
+    <div class="phase-block ${passClass}" style="animation-delay:${index * 85 + 550}ms">
       <div class="phase-hd">
         <span class="phase-lbl">${phase.label}</span>
         <span class="phase-ic">${passIcon}</span>
