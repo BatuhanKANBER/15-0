@@ -14,22 +14,25 @@ function showToast(msg, type = "") {
 
 // ── Formation selection screen ────────────────────────────────────
 const FORMATIONS = {
-  "4-3-3": { DEF:4, MID:3, FWD:3 },
-  "4-4-2": { DEF:4, MID:4, FWD:2 },
-  "4-5-1": { DEF:4, MID:5, FWD:1 },
-  "3-5-2": { DEF:3, MID:5, FWD:2 },
-  "3-4-3": { DEF:3, MID:4, FWD:3 },
-  "5-3-2": { DEF:5, MID:3, FWD:2 },
+  "4-3-3": { GK:1, RB:1, CB:2, LB:1, MID:3, RW:1, ST:1, LW:1 },
+  "4-4-2": { GK:1, RB:1, CB:2, LB:1, MID:4,             ST:2 },
+  "4-5-1": { GK:1, RB:1, CB:2, LB:1, MID:5,             ST:1 },
+  "3-5-2": { GK:1, RB:1, CB:3, LB:1, MID:3,             ST:2 },
+  "3-4-3": { GK:1,       CB:3,       MID:4, RW:1, ST:1, LW:1 },
+  "5-3-2": { GK:1, RB:1, CB:3, LB:1, MID:3,             ST:2 },
 };
 
 function buildFormationScreen(selectedName, onSelect) {
   const container = document.getElementById("formation-options");
   container.innerHTML = Object.entries(FORMATIONS).map(([name, f]) => {
+    const fwdCount = (f.LW||0) + (f.ST||0) + (f.RW||0);
+    const midCount = f.MID || 0;
+    const defCount = (f.LB||0) + (f.CB||0) + (f.RB||0);
     const rows = [
-      { count: f.FWD, cls: "fwd-color" },
-      { count: f.MID, cls: "mid-color" },
-      { count: f.DEF, cls: "def-color" },
-      { count: 1,     cls: "gk-color"  },
+      { count: fwdCount, cls: "fwd-color" },
+      { count: midCount, cls: "mid-color" },
+      { count: defCount, cls: "def-color" },
+      { count: 1,        cls: "gk-color"  },
     ];
     const diagramHtml = rows.map(r =>
       `<div class="diagram-row">${Array(r.count).fill(`<span class="diagram-dot" style="background:var(--${r.cls})"></span>`).join("")}</div>`
@@ -55,42 +58,49 @@ function buildFormationScreen(selectedName, onSelect) {
 // ── Progress slots (header) ───────────────────────────────────────
 function updateProgressSlots(xi, maxSlots, pendingPlayer) {
   const container = document.getElementById("progress-slots");
-  const posInfo = [
-    { pos:"GK",  cls:"gk"  },
-    { pos:"DEF", cls:"def" },
-    { pos:"MID", cls:"mid" },
-    { pos:"FWD", cls:"fwd" },
+  const tierInfo = [
+    { positions: ["GK"],           cls: "gk"  },
+    { positions: ["LB","CB","RB"], cls: "def" },
+    { positions: ["MID"],          cls: "mid" },
+    { positions: ["LW","ST","RW"], cls: "fwd" },
   ];
   let html = "";
-  posInfo.forEach(({ pos, cls }, pi) => {
-    if (pi > 0) html += `<span class="prog-gap"></span>`;
-    const slots = xi[pos];
-    for (let i = 0; i < maxSlots[pos]; i++) {
-      const confirmed = slots[i] !== null;
-      const isPending = !confirmed && pendingPlayer?.pos === pos && i === slots.findIndex(s => s === null);
+  tierInfo.forEach(({ positions, cls }, ti) => {
+    const tierSlots = positions.flatMap(pos =>
+      Array.from({ length: maxSlots[pos] || 0 }, (_, i) => ({ pos, idx: i }))
+    );
+    if (!tierSlots.length) return;
+    if (ti > 0) html += `<span class="prog-gap"></span>`;
+    tierSlots.forEach(({ pos, idx }) => {
+      const confirmed = xi[pos][idx] !== null;
+      const isPending = !confirmed && pendingPlayer?.pos === pos && xi[pos].indexOf(null) === idx;
       const state = confirmed ? "filled" : (isPending ? "pending" : "");
       html += `<span class="prog-dot ${cls} ${state}"></span>`;
-    }
+    });
   });
   container.innerHTML = html;
 }
 
 // ── Player card HTML ──────────────────────────────────────────────
-const POS_LABELS = { GK:"KAL", DEF:"DEF", MID:"ORT", FWD:"FOR" };
+const POS_LABELS = {
+  GK:"KAL", CB:"STR", LB:"SB", RB:"SB", MID:"ORT", LW:"SK", RW:"SK", ST:"FOR"
+};
 
 function renderPlayerCard(p, isSelected, isDisabled) {
   let cls = "player-card";
   if (isSelected) cls += " selected";
   if (isDisabled) cls += " disabled";
 
-  const ovrCls  = ovrClass(p.overall);
+  const ovrCls   = ovrClass(p.overall);
   const posClass = p.pos.toLowerCase();
 
   let statsHtml = "";
   if (p.pos === "GK") {
     statsHtml = `<span class="stat-pill cs">🧤 ${p.saves}</span><span class="stat-pill cs">CS ${p.cs}</span>`;
-  } else if (p.pos === "DEF") {
+  } else if (p.pos === "CB") {
     statsHtml = `<span class="stat-pill cs">🛡 ${p.tackles}</span>${p.goals > 0 ? `<span class="stat-pill goals">⚽ ${p.goals}</span>` : ""}`;
+  } else if (p.pos === "LB" || p.pos === "RB") {
+    statsHtml = `<span class="stat-pill cs">🛡 ${p.tackles}</span><span class="stat-pill assists">🅰 ${p.assists}</span>`;
   } else {
     statsHtml = `<span class="stat-pill goals">⚽ ${p.goals}</span><span class="stat-pill assists">🅰 ${p.assists}</span>`;
   }
@@ -112,64 +122,70 @@ function renderPlayerCard(p, isSelected, isDisabled) {
 }
 
 // ── Formation render ──────────────────────────────────────────────
-// Builds the formation DOM. pendingPlayer = selected but not yet confirmed.
-// newlyFilled = { pos, idx } of the slot just confirmed (gets pop animation).
+const TIER_GROUPS = [
+  ["LW", "ST", "RW"],
+  ["MID"],
+  ["LB", "CB", "RB"],
+  ["GK"],
+];
+
+const SLOT_LABELS = {
+  GK:"KAL", CB:"STR", LB:"LB", RB:"RB", MID:"ORT", LW:"LW", RW:"RW", ST:"ST"
+};
+
 function renderFormation(xi, maxSlots, pendingPlayer, newlyFilled = null) {
   const container = document.getElementById("formation-container");
   container.innerHTML = "";
 
-  const posRows = ["FWD", "MID", "DEF", "GK"];
+  const tierRowIds = ["row-fwd", "row-mid", "row-def", "row-gk"];
 
-  for (const pos of posRows) {
-    const count = maxSlots[pos];
-    const row   = document.createElement("div");
+  TIER_GROUPS.forEach((tierPositions, ti) => {
+    const tierSlots = tierPositions.flatMap(pos =>
+      Array.from({ length: maxSlots[pos] || 0 }, (_, i) => ({ pos, idx: i }))
+    );
+    if (!tierSlots.length) return;
+
+    const row = document.createElement("div");
     row.className = "formation-row";
-    row.id = `row-${pos.toLowerCase()}`;
+    row.id = tierRowIds[ti];
 
-    // Find the first null slot index for pending
-    const firstNull = xi[pos].indexOf(null);
-
-    for (let i = 0; i < count; i++) {
-      const slot = document.createElement("div");
+    tierSlots.forEach(({ pos, idx }) => {
+      const slot   = document.createElement("div");
       slot.dataset.pos = pos;
-      slot.dataset.idx = i;
-      const player = xi[pos][i];
+      slot.dataset.idx = idx;
+      const player = xi[pos][idx];
 
       if (player) {
-        const isNew = newlyFilled && newlyFilled.pos === pos && newlyFilled.idx === i;
+        const isNew = newlyFilled && newlyFilled.pos === pos && newlyFilled.idx === idx;
         slot.className = isNew ? "slot filled just-filled" : "slot filled";
         slot.innerHTML = buildFilledSlot(pos, player);
       } else if (pendingPlayer && pendingPlayer.pos === pos) {
-        // Tüm boş slotlar tıklanabilir olarak işaretle
         slot.className = "slot selectable";
         slot.innerHTML = buildSelectableSlot(pos);
-        slot.addEventListener("click", () => onSlotClick(pos, i));
+        slot.addEventListener("click", () => onSlotClick(pos, idx));
       } else {
         slot.className = "slot empty";
         slot.innerHTML = buildEmptySlot(pos);
       }
 
       row.appendChild(slot);
-    }
+    });
     container.appendChild(row);
-  }
+  });
 
   const confirmed = Object.values(xi).flat().filter(Boolean).length;
   document.getElementById("xi-count").textContent = `${confirmed} / 11`;
 }
 
 function buildEmptySlot(pos) {
-  const labels = { GK:"KAL", DEF:"DEF", MID:"ORT", FWD:"FOR" };
-  return `<span class="slot-pos-label">${labels[pos]}</span><span class="slot-hint">Boş</span>`;
+  return `<span class="slot-pos-label">${SLOT_LABELS[pos]}</span><span class="slot-hint">Boş</span>`;
 }
 function buildSelectableSlot(pos) {
-  const labels = { GK:"KAL", DEF:"DEF", MID:"ORT", FWD:"FOR" };
-  return `<span class="slot-pos-label">${labels[pos]}</span><span class="slot-select-icon">+</span>`;
+  return `<span class="slot-pos-label">${SLOT_LABELS[pos]}</span><span class="slot-select-icon">+</span>`;
 }
 function buildFilledSlot(pos, player) {
-  const labels = { GK:"KAL", DEF:"DEF", MID:"ORT", FWD:"FOR" };
-  const short  = player.name.split(" ").slice(-1)[0];
-  return `<span class="slot-pos-label">${labels[pos]}</span><span class="slot-name">${short}</span><span class="slot-ovr ${ovrClass(player.overall)}">${player.overall}</span>`;
+  const short = player.name.split(" ").slice(-1)[0];
+  return `<span class="slot-pos-label">${SLOT_LABELS[pos]}</span><span class="slot-name">${short}</span><span class="slot-ovr ${ovrClass(player.overall)}">${player.overall}</span>`;
 }
 
 // ── Roll button zone ──────────────────────────────────────────────
@@ -212,6 +228,20 @@ function updateRollZone(phase, pendingPlayer) {
 
 // ── Result screen ─────────────────────────────────────────────────
 // sim = { grade, icon, title, stage, phases, totalMatches, score }
+function buildTourStats(sim) {
+  const goals = {}, assists = {};
+  for (const phase of sim.phases) {
+    for (const m of phase.matches) {
+      for (const ev of (m.events || [])) {
+        if (!ev.mine) continue;
+        goals[ev.label]   = (goals[ev.label]   || 0) + 1;
+        if (ev.assister) assists[ev.assister] = (assists[ev.assister] || 0) + 1;
+      }
+    }
+  }
+  return { goals, assists };
+}
+
 function renderResult(sim, players) {
   document.getElementById("result-icon").textContent = sim.icon;
   const gradeEl = document.getElementById("result-grade");
@@ -221,18 +251,35 @@ function renderResult(sim, players) {
   document.getElementById("win-text").textContent =
     `${sim.totalMatches} maç · Güç skoru: ${sim.score}`;
 
-  // Phase timeline
   document.getElementById("result-timeline").innerHTML =
     sim.phases.map((p, i) => buildPhaseHTML(p, i)).join("");
 
-  // XI
-  const posOrder = ["GK","DEF","MID","FWD"];
+  const ts = buildTourStats(sim);
+
+  const posOrder = ["GK","LB","CB","RB","MID","LW","ST","RW"];
   const sorted   = [...players].sort((a,b) => posOrder.indexOf(a.pos) - posOrder.indexOf(b.pos));
-  document.getElementById("result-xi").innerHTML = sorted.map(p => `
-    <div class="result-player">
-      <div class="rp-name">${p.name}</div>
-      <div class="rp-meta">${p.pos} · OVR ${p.overall}</div>
-    </div>`).join("");
+  document.getElementById("result-xi").innerHTML = sorted.map(p => {
+    const posClass = p.pos.toLowerCase();
+    const key  = p.name.split(" ").slice(-1)[0];
+    const g    = ts.goals[key]   || 0;
+    const a    = ts.assists[key] || 0;
+    const statParts = [];
+    if (g > 0 || p.pos !== "GK") statParts.push(`<span class="rp-stat">⚽ ${g}</span>`);
+    if (a > 0)                   statParts.push(`<span class="rp-stat">🅰 ${a}</span>`);
+    if (!statParts.length)       statParts.push(`<span class="rp-stat rp-stat-dim">—</span>`);
+    return `
+    <div class="result-player rp-pos-${posClass}">
+      <div class="rp-top">
+        <span class="rp-name">${p.name}</span>
+        <span class="pos-badge pos-${posClass}">${POS_LABELS[p.pos]}</span>
+      </div>
+      <div class="rp-row2">
+        <span class="rp-ovr ${ovrClass(p.overall)}">${p.overall}</span>
+        <span class="rp-apps">${p.apps} maç</span>
+      </div>
+      <div class="rp-stats">${statParts.join("")}</div>
+    </div>`;
+  }).join("");
 
   showScreen("screen-result");
 }

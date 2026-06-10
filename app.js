@@ -13,13 +13,12 @@ const STATE = {
   usedKeys:      [],
 };
 
+const ALL_POSITIONS = ["GK","CB","LB","RB","MID","LW","RW","ST"];
+
 function makeEmptyXi(slots) {
-  return {
-    GK:  Array(slots.GK).fill(null),
-    DEF: Array(slots.DEF).fill(null),
-    MID: Array(slots.MID).fill(null),
-    FWD: Array(slots.FWD).fill(null),
-  };
+  const xi = {};
+  ALL_POSITIONS.forEach(pos => { xi[pos] = Array(slots[pos] || 0).fill(null); });
+  return xi;
 }
 
 // ── Boot ──────────────────────────────────────────────────────────
@@ -42,7 +41,7 @@ function onConfirmFormation() {
   const name = document.getElementById("btn-confirm-formation")._getChosen();
   STATE.formation = name;
   const f = FORMATIONS[name];
-  STATE.maxSlots = { GK:1, DEF:f.DEF, MID:f.MID, FWD:f.FWD };
+  STATE.maxSlots = { ...FORMATIONS[name] };
   STATE.xi = makeEmptyXi(STATE.maxSlots);
 
   document.getElementById("formation-badge").textContent = name;
@@ -93,7 +92,7 @@ async function onSlotClick(pos, idx) {
   const needed = Object.values(STATE.maxSlots).reduce((a, b) => a + b, 0);
   if (total >= needed) {
     const all = Object.values(STATE.xi).flat().filter(Boolean);
-    renderResult(simulateUCL(all), all);
+    runSimulation(simulateUCL(all), all);
     return;
   }
 
@@ -138,7 +137,13 @@ function applySquad(data) {
   document.getElementById("current-season").textContent =
     data.season + "-" + (parseInt(data.season) + 1).toString().slice(-2);
   document.getElementById("current-team").textContent = data.team;
-  document.getElementById("squad-header").classList.remove("hidden");
+
+  const hdr = document.getElementById("squad-header");
+  hdr.classList.remove("hidden");
+  hdr.style.animation = "none";
+  hdr.offsetHeight; // reflow
+  hdr.style.animation = "squad-in 0.32s cubic-bezier(.22,.68,0,1.3) both";
+
   document.getElementById("squad-placeholder").classList.add("hidden");
   document.getElementById("player-list").classList.remove("hidden");
 
@@ -249,8 +254,261 @@ function updateSkipBtn() {
 
 // ── Helpers ───────────────────────────────────────────────────────
 function normName(n)  { return n.toLowerCase().trim().replace(/\s+/g, " "); }
-function getRemainingPositions() { return ["GK","DEF","MID","FWD"].filter(p => STATE.xi[p].includes(null)); }
-function posLabel(pos) { return { GK:"Kaleci", DEF:"Defans", MID:"Orta saha", FWD:"Forvet" }[pos]; }
+function getRemainingPositions() { return ALL_POSITIONS.filter(p => STATE.xi[p] && STATE.xi[p].includes(null)); }
+function posLabel(pos) {
+  return { GK:"Kaleci", CB:"Stoper", LB:"Sol Bek", RB:"Sağ Bek",
+           MID:"Orta saha", LW:"Sol Kanat", RW:"Sağ Kanat", ST:"Forvet" }[pos];
+}
+
+// ── Simulation animation ──────────────────────────────────────────
+const SIM = { speed: 1, skip: false, _res: [] };
+
+function _simSleep(ms) {
+  if (SIM.skip) return Promise.resolve();
+  return new Promise(resolve => {
+    SIM._res.push(resolve);
+    setTimeout(() => {
+      const i = SIM._res.indexOf(resolve);
+      if (i >= 0) SIM._res.splice(i, 1);
+      resolve();
+    }, Math.round(ms / SIM.speed));
+  });
+}
+
+function _simSkipAll() {
+  SIM.skip = true;
+  SIM._res.forEach(r => r());
+  SIM._res = [];
+}
+
+async function runSimulation(simResult, players) {
+  SIM.skip = false;
+  SIM.speed = 1;
+  SIM._res  = [];
+  enrichSimWithEvents(simResult, players);
+
+  document.getElementById("sim-log").innerHTML        = "";
+  document.getElementById("sim-events-feed").innerHTML = "";
+  document.getElementById("sim-phase-lbl").textContent = "";
+  document.getElementById("sim-counter").textContent   = "";
+  document.getElementById("btn-sim-speed").textContent = "⚡ Hızlandır";
+
+  document.getElementById("btn-sim-skip").onclick = () => {
+    _simSkipAll();
+    renderResult(simResult, players);
+  };
+  document.getElementById("btn-sim-speed").onclick = () => {
+    SIM.speed = SIM.speed === 1 ? 6 : 1;
+    document.getElementById("btn-sim-speed").textContent =
+      SIM.speed === 1 ? "⚡ Hızlandır" : "🐢 Yavaşlat";
+  };
+
+  showScreen("screen-sim");
+  await _simSleep(250);
+
+  for (const phase of simResult.phases) {
+    if (SIM.skip) return;
+    const cont = await _animatePhase(phase, simResult, players);
+    if (!cont || SIM.skip) return;
+  }
+
+  if (!SIM.skip) {
+    await _simSleep(700);
+    renderResult(simResult, players);
+  }
+}
+
+async function _animatePhase(phase, simResult, players) {
+  document.getElementById("sim-phase-lbl").textContent = phase.label;
+
+  for (let mi = 0; mi < phase.matches.length; mi++) {
+    if (SIM.skip) return false;
+    const m = phase.matches[mi];
+
+    const isFinal  = phase.id === "final";
+    const isLeague = phase.id === "league";
+    document.getElementById("sim-counter").textContent =
+      isLeague ? `${mi + 1} / ${phase.matches.length}` :
+      isFinal  ? "Final" :
+      (mi === 0 ? "1. maç" : "2. maç");
+
+    await _animateMatch(m);
+    if (SIM.skip) return false;
+
+    _logMatch(m);
+    await _simSleep(420);
+  }
+
+  if (phase.id !== "league" && phase.matches.length > 1) {
+    _logAgg(phase);
+    await _simSleep(500);
+  }
+
+  if (phase.penalties) {
+    if (SIM.skip) return false;
+    await _animatePenalties(phase);
+    await _simSleep(400);
+  }
+
+  _logPhaseBanner(phase);
+
+  if (!phase.passed) {
+    await _simSleep(1300);
+    if (!SIM.skip) renderResult(simResult, players);
+    return false;
+  }
+
+  await _simSleep(isLeaguePh(phase) ? 800 : 600);
+  return true;
+}
+
+function isLeaguePh(phase) { return phase.id === "league"; }
+
+async function _animateMatch(m) {
+  const homeName  = m.home !== false ? "Takımım"  : m.opponent;
+  const awayName  = m.home !== false ? m.opponent : "Takımım";
+  const homeVenue = m.home === true  ? "İç Saha"  : (m.home === null ? "Tarafsız" : "");
+  const awayVenue = m.home === false ? "Deplasman" : (m.home === null ? "Tarafsız" : "");
+
+  document.getElementById("stt-home-name").textContent  = homeName;
+  document.getElementById("stt-away-name").textContent  = awayName;
+  document.getElementById("stt-home-venue").textContent = homeVenue;
+  document.getElementById("stt-away-venue").textContent = awayVenue;
+  document.getElementById("sim-sc-home").textContent    = "0";
+  document.getElementById("sim-sc-away").textContent    = "0";
+
+  const feed = document.getElementById("sim-events-feed");
+  feed.innerHTML = "";
+
+  const card = document.getElementById("sim-match-card");
+  card.classList.remove("card-in");
+  void card.offsetWidth;
+  card.classList.add("card-in");
+
+  await _simSleep(280);
+
+  let sh = 0, sa = 0;
+  for (const ev of (m.events || [])) {
+    if (SIM.skip) break;
+    await _simSleep(330);
+
+    const isHomeGoal = m.home !== false ? ev.mine : !ev.mine;
+    if (isHomeGoal) {
+      sh++;
+      _bumScore("sim-sc-home", sh);
+    } else {
+      sa++;
+      _bumScore("sim-sc-away", sa);
+    }
+
+    const div = document.createElement("div");
+    div.className = `sim-ev ${ev.mine ? "ev-goal" : "ev-opp"}`;
+    div.innerHTML = `<span class="ev-min">${ev.min}'</span>`
+                  + `<span class="ev-ico">${ev.mine ? "⚽" : "🔴"}</span>`
+                  + `<span class="ev-lbl">${ev.label}</span>`;
+    feed.appendChild(div);
+    feed.scrollTop = feed.scrollHeight;
+  }
+
+  await _simSleep(220);
+  const labels = { W:"Galibiyet ✓", D:"Beraberlik", L:"Mağlubiyet ✗" };
+  const badge  = document.createElement("div");
+  badge.className = `sim-result-badge rb-${m.result}`;
+  badge.textContent = labels[m.result];
+  feed.appendChild(badge);
+}
+
+async function _animatePenalties(phase) {
+  const pen = phase.penalties;
+  const oppName = phase.opponent || "Rakip";
+
+  document.getElementById("stt-home-name").textContent  = "Takımım";
+  document.getElementById("stt-away-name").textContent  = oppName;
+  document.getElementById("stt-home-venue").textContent = "Penaltı";
+  document.getElementById("stt-away-venue").textContent = "Penaltı";
+  document.getElementById("sim-sc-home").textContent    = "0";
+  document.getElementById("sim-sc-away").textContent    = "0";
+
+  const feed = document.getElementById("sim-events-feed");
+  feed.innerHTML = "";
+
+  const card = document.getElementById("sim-match-card");
+  card.classList.remove("card-in");
+  void card.offsetWidth;
+  card.classList.add("card-in");
+
+  await _simSleep(260);
+
+  const hdr = document.createElement("div");
+  hdr.className = "sim-pen-hdr";
+  hdr.textContent = "⚽  Penaltı Atışları";
+  feed.appendChild(hdr);
+
+  let my = 0, opp = 0;
+  for (const kick of pen.kicks) {
+    if (SIM.skip) break;
+    await _simSleep(420);
+
+    if (kick.scored) {
+      if (kick.mine) { my++;  _bumScore("sim-sc-home", my);  }
+      else           { opp++; _bumScore("sim-sc-away", opp); }
+    }
+
+    const icon = kick.scored ? (kick.mine ? "⚽" : "🔴") : "❌";
+    const name = kick.mine ? (kick.taker || "Oyuncu") : oppName.split(" ")[0];
+    const sdTag = kick.sd ? `<span class="pen-sd">SD</span>` : "";
+    const div = document.createElement("div");
+    div.className = `sim-ev ${kick.mine && kick.scored ? "ev-goal" : !kick.mine && kick.scored ? "ev-opp" : "ev-miss"}`;
+    div.innerHTML = `<span class="ev-ico">${icon}</span><span class="ev-lbl">${name}</span>${sdTag}`;
+    feed.appendChild(div);
+    feed.scrollTop = feed.scrollHeight;
+  }
+
+  await _simSleep(220);
+  const badge = document.createElement("div");
+  badge.className = `sim-result-badge ${pen.passed ? "rb-W" : "rb-L"}`;
+  badge.textContent = `Penaltı: ${pen.myScore}–${pen.oppScore}  ${pen.passed ? "✓ Geçti" : "✗ Elendi"}`;
+  feed.appendChild(badge);
+}
+
+function _bumScore(id, val) {
+  const el = document.getElementById(id);
+  el.textContent = val;
+  el.classList.remove("sc-bump");
+  void el.offsetWidth;
+  el.classList.add("sc-bump");
+}
+
+function _logMatch(m) {
+  const log  = document.getElementById("sim-log");
+  const home = m.home !== false ? "Takımım" : m.opponent;
+  const away = m.home !== false ? m.opponent : "Takımım";
+  const div  = document.createElement("div");
+  div.className = `sim-log-row l${m.result}`;
+  div.innerHTML = `<span class="lr-home">${home}</span>`
+                + `<span class="lr-sc">${m.gf}–${m.ga}</span>`
+                + `<span class="lr-away">${away}</span>`;
+  log.appendChild(div);
+  log.scrollTop = log.scrollHeight;
+}
+
+function _logAgg(phase) {
+  const log = document.getElementById("sim-log");
+  const div = document.createElement("div");
+  div.className = `sim-log-agg ${phase.passed ? "agg-ok" : "agg-fail"}`;
+  div.textContent = `Toplam: ${phase.aggFor}–${phase.aggAga}  ${phase.passed ? "→ Geçti ✓" : "→ Elendi ✗"}`;
+  log.appendChild(div);
+  log.scrollTop = log.scrollHeight;
+}
+
+function _logPhaseBanner(phase) {
+  const log = document.getElementById("sim-log");
+  const div = document.createElement("div");
+  div.className = `sim-phase-banner ${phase.passed ? "pb-pass" : "pb-fail"}`;
+  div.textContent = phase.summary;
+  log.appendChild(div);
+  log.scrollTop = log.scrollHeight;
+}
 
 // ── Play again ────────────────────────────────────────────────────
 function onPlayAgain() {

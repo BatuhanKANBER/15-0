@@ -82,6 +82,44 @@
       </div>
     </div>
 
+    <!-- ── Simulation Screen ────────────────────────────────────── -->
+    <div id="screen-sim" class="screen">
+      <div class="sim-wrap">
+        <div class="sim-header">
+          <span class="sim-phase-lbl" id="sim-phase-lbl"></span>
+          <span class="sim-counter"   id="sim-counter"></span>
+        </div>
+
+        <div class="sim-match-card" id="sim-match-card">
+          <div class="sim-teams-row">
+            <div class="sim-team">
+              <div class="stt-name"  id="stt-home-name"></div>
+              <div class="stt-venue" id="stt-home-venue"></div>
+            </div>
+            <div class="sim-score-box">
+              <span class="sim-sc" id="sim-sc-home">0</span>
+              <span class="sim-sc-sep">–</span>
+              <span class="sim-sc" id="sim-sc-away">0</span>
+            </div>
+            <div class="sim-team sim-team-right">
+              <div class="stt-name"  id="stt-away-name"></div>
+              <div class="stt-venue" id="stt-away-venue"></div>
+            </div>
+          </div>
+          <div class="sim-events-feed" id="sim-events-feed"></div>
+        </div>
+
+        <div class="sim-log-scroll">
+          <div class="sim-log" id="sim-log"></div>
+        </div>
+
+        <div class="sim-controls">
+          <button id="btn-sim-speed" class="btn-sim-ctrl">⚡ Hızlandır</button>
+          <button id="btn-sim-skip"  class="btn-sim-ctrl btn-sim-skip">Sonucu Göster →</button>
+        </div>
+      </div>
+    </div>
+
     <!-- ── Result Screen ──────────────────────────────────────── -->
     <div id="screen-result" class="screen">
       <div class="result-card">
